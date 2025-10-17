@@ -50,7 +50,7 @@ export const mastra = new Mastra({
 
               const repoFull: string = body?.repository?.full_name || '';
               const [owner, repo] = repoFull.split('/');
-              const tagName: string = body?.release?.tag_name || '';
+              const releaseNotes: string | undefined = body?.release?.body || undefined;
 
               const workflow = mastra.getWorkflow('docsSyncWorkflow');
               const run = await workflow.createRunAsync();
@@ -58,7 +58,7 @@ export const mastra = new Mastra({
                 inputData: {
                   owner,
                   repo,
-                  tagName,
+                  releaseNotes,
                   baseBranch: process.env.DOCS_BASE_BRANCH || 'main',
                   docsBranchPrefix: process.env.DOCS_BRANCH_PREFIX || 'docs/update-',
                   slackChannel: process.env.SLACK_CHANNEL || '#docs',

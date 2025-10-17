@@ -1,7 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { Octokit } from '@octokit/rest';
-
+import { WebClient } from '@slack/web-api';
 const getOctokit = () =>
     new Octokit({ auth: process.env.GITHUB_TOKEN });
 
@@ -12,9 +12,12 @@ export const fetchReleaseContextTool = createTool({
     inputSchema: z.object({
         owner: z.string(),
         repo: z.string(),
-        tagName: z.string().describe('Release tag (e.g. v0.20.2)'),
+        tagName: z.string().optional().describe('Release tag (e.g. v0.20.2). If omitted, use latest'),
+        releaseNotes: z.string().optional().describe('Optional release notes from webhook payload'),
     }),
     outputSchema: z.object({
+        owner: z.string(),
+        repo: z.string(),
         releaseNotes: z.string(),
         currentTag: z.string(),
         previousTag: z.string().nullable(),
@@ -32,26 +35,31 @@ export const fetchReleaseContextTool = createTool({
             .describe('Files changed between previous and current tags'),
     }),
     execute: async ({ context }) => {
-        const { owner, repo, tagName } = context;
+        const { owner, repo, tagName, releaseNotes: releaseNotesFromWebhook } = context;
         const octokit = getOctokit();
 
-        const releases = await octokit.repos.listReleases({ owner, repo, per_page: 100 });
-        const current = releases.data.find((r) => r.tag_name === tagName);
-        if (!current) throw new Error(`Release ${tagName} not found`);
+        const releases = await octokit.repos.listReleases({ owner, repo, per_page: 30 });
+        const published = releases.data.filter((r) => !!r.published_at);
 
-        // Find previous published release by published_at
-        const sorted = releases.data
-            .filter((r) => !!r.published_at)
-            .sort((a, b) => new Date(a.published_at!).getTime() - new Date(b.published_at!).getTime());
-        const idx = sorted.findIndex((r) => r.tag_name === tagName);
-        const prev = idx > 0 ? sorted[idx - 1] : undefined;
+        // Determine current release: by tag if provided, otherwise latest by published_at
+        const sortedDesc = [...published].sort(
+            (a, b) => new Date(b.published_at!).getTime() - new Date(a.published_at!).getTime(),
+        );
+        const current = tagName
+            ? sortedDesc.find((r) => r.tag_name === tagName)
+            : sortedDesc[0];
+        if (!current) throw new Error(`Latest published release${tagName ? ` for tag ${tagName}` : ''} not found`);
+
+        // Find previous published release
+        const currentIdx = sortedDesc.findIndex((r) => r.tag_name === current.tag_name);
+        const prev = currentIdx >= 0 ? sortedDesc[currentIdx + 1] : undefined;
 
         let diffFiles: Array<{ filename: string; status: string; additions: number; deletions: number; changes: number; patch?: string }> = [];
         if (prev?.tag_name) {
             const compare = await octokit.repos.compareCommitsWithBasehead({
                 owner,
                 repo,
-                basehead: `${prev.tag_name}...${tagName}`,
+                basehead: `${prev.tag_name}...${current.tag_name}`,
                 per_page: 250,
             });
             diffFiles = (compare.data.files || []).map((f) => ({
@@ -65,8 +73,10 @@ export const fetchReleaseContextTool = createTool({
         }
 
         return {
-            releaseNotes: current.body || '',
-            currentTag: tagName,
+            owner,
+            repo,
+            releaseNotes: releaseNotesFromWebhook ?? current.body ?? '',
+            currentTag: current.tag_name,
             previousTag: prev?.tag_name ?? null,
             diffFiles,
         };
@@ -174,7 +184,6 @@ export const postSlackNotificationTool = createTool({
     }),
     outputSchema: z.object({ ok: z.boolean() }),
     execute: async ({ context }) => {
-        const { WebClient } = await import('@slack/web-api');
         const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
         const res = await slack.chat.postMessage({ channel: context.channel, text: context.text });
         return { ok: !!res.ok };

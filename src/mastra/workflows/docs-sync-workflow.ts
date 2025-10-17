@@ -90,7 +90,7 @@ export const docsSyncWorkflow = createWorkflow({
     inputSchema: z.object({
         owner: z.string(),
         repo: z.string(),
-        tagName: z.string(),
+        releaseNotes: z.string().optional(),
         baseBranch: z.string().default('main'),
         docsBranchPrefix: z.string().default('docs/update-'),
         slackChannel: z.string(),
@@ -104,25 +104,15 @@ export const docsSyncWorkflow = createWorkflow({
         return {
             owner: init.owner,
             repo: init.repo,
-            tagName: init.tagName,
+            releaseNotes: init.releaseNotes,
         };
     })
     .then(fetchReleaseContextStep)
-    .map(async ({ inputData, getInitData }) => {
-        const init = getInitData();
-        return {
-            owner: init.owner,
-            repo: init.repo,
-            releaseNotes: inputData.releaseNotes,
-            currentTag: inputData.currentTag,
-            previousTag: inputData.previousTag,
-            diffFiles: inputData.diffFiles,
-        };
-    })
     .then(draftDocsStep)
-    .map(async ({ inputData, getInitData }) => {
+    .map(async ({ inputData, getInitData, getStepResult }) => {
         const init = getInitData();
-        const safeTag = String(init.tagName || '').replaceAll('/', '-');
+        const releaseContext = getStepResult(fetchReleaseContextStep);
+        const safeTag = String(releaseContext.currentTag || '').replaceAll('/', '-');
         const safeRepo = String(init.repo || '').replaceAll('/', '-');
         const branchName = `${init.docsBranchPrefix}dex-${safeRepo}-docs-${safeTag}`;
         return {
@@ -136,11 +126,12 @@ export const docsSyncWorkflow = createWorkflow({
         };
     })
     .then(createPrStep)
-    .map(async ({ inputData, getInitData }) => {
+    .map(async ({ inputData, getInitData, getStepResult }) => {
         const init = getInitData();
+        const releaseContext = getStepResult(fetchReleaseContextStep);
         return {
             channel: init.slackChannel,
-            text: `Docs PR opened for ${init.repo} ${init.tagName}: ${inputData.prUrl}`,
+            text: `Docs PR opened for ${init.repo} ${releaseContext.currentTag}: ${inputData.prUrl}`,
         };
     })
     .then(notifySlackStep)
