@@ -48,7 +48,47 @@ export const fetchReleaseContextTool = createTool({
         const current = tagName
             ? sortedDesc.find((r) => r.tag_name === tagName)
             : sortedDesc[0];
-        if (!current) throw new Error(`Latest published release${tagName ? ` for tag ${tagName}` : ''} not found`);
+
+        // If no published releases, fall back to latest commit on default branch
+        if (!current) {
+            const repoInfo = await octokit.repos.get({ owner, repo });
+            const defaultBranch = repoInfo.data.default_branch || 'main';
+            const commits = await octokit.repos.listCommits({ owner, repo, sha: defaultBranch, per_page: 2 });
+            const head = commits.data[0];
+            const prevCommit = commits.data[1];
+
+            let diffFiles: Array<{ filename: string; status: string; additions: number; deletions: number; changes: number; patch?: string }> = [];
+            if (head && prevCommit) {
+                const compare = await octokit.repos.compareCommitsWithBasehead({
+                    owner,
+                    repo,
+                    basehead: `${prevCommit.sha}...${head.sha}`,
+                    per_page: 250,
+                });
+                diffFiles = (compare.data.files || []).map((f) => ({
+                    filename: f.filename,
+                    status: f.status || 'modified',
+                    additions: f.additions || 0,
+                    deletions: f.deletions || 0,
+                    changes: f.changes || 0,
+                    patch: f.patch,
+                }));
+            }
+
+            const currentSha = head?.sha;
+            if (!currentSha) {
+                throw new Error('No commits found on the default branch');
+            }
+
+            return {
+                owner,
+                repo,
+                releaseNotes: releaseNotesFromWebhook ?? head?.commit?.message ?? '',
+                currentTag: currentSha,
+                previousTag: prevCommit?.sha ?? null,
+                diffFiles,
+            };
+        }
 
         // Find previous published release
         const currentIdx = sortedDesc.findIndex((r) => r.tag_name === current.tag_name);

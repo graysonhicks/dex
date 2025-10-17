@@ -2,6 +2,7 @@ import { openai } from '@ai-sdk/openai';
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 import { LibSQLStore } from '@mastra/libsql';
+import { fetchReleaseContextTool } from '../tools/github-docs-tools';
 
 export const docsAgent = new Agent({
     name: 'Docs Agent',
@@ -21,6 +22,9 @@ export const docsAgent = new Agent({
       - If unsure where to place a doc, propose under ".mastra-doc-proposals/misc/".
     `,
     model: openai('gpt-4o-mini'),
+    tools: {
+        fetchReleaseContextTool,
+    },
     memory: new Memory({
         storage: new LibSQLStore({
             url: 'file:../mastra.db',
