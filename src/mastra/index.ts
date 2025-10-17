@@ -6,7 +6,6 @@ import { weatherWorkflow } from './workflows/weather-workflow';
 import { weatherAgent } from './agents/weather-agent';
 import docsSyncWorkflow from './workflows/docs-sync-workflow';
 import { docsAgent } from './agents/docs-agent';
-import type { RequestListener } from 'http';
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow, docsSyncWorkflow },
@@ -27,25 +26,23 @@ export const mastra = new Mastra({
     // Enables DefaultExporter and CloudExporter for AI tracing
     default: { enabled: true },
   },
+  bundler: {
+    externals: ['@slack/web-api'],
+  },
   server: {
     apiRoutes: [
       {
         path: '/api/webhooks/github',
         method: 'POST',
         createHandler: async ({ mastra }) => {
-          const handler: RequestListener = async (req, res) => {
+          return async (c) => {
             try {
-              const chunks: Uint8Array[] = [];
-              for await (const chunk of req) chunks.push(chunk as Uint8Array);
-              const bodyRaw = Buffer.concat(chunks).toString('utf8');
-              const body = bodyRaw ? JSON.parse(bodyRaw) : {};
+              const body = await c.req.json().catch(() => ({}));
 
               // Only handle release events with "published" action
-              const event = req.headers['x-github-event'];
+              const event = c.req.header('x-github-event');
               if (event !== 'release' || body.action !== 'published') {
-                res.statusCode = 200;
-                res.end('ignored');
-                return;
+                return c.text('ignored', 200);
               }
 
               const repoFull: string = body?.repository?.full_name || '';
@@ -65,15 +62,11 @@ export const mastra = new Mastra({
                 },
               });
 
-              res.statusCode = 200;
-              res.setHeader('content-type', 'application/json');
-              res.end(JSON.stringify(result));
+              return c.json(result, 200);
             } catch (e: any) {
-              res.statusCode = 500;
-              res.end(e?.message || 'error');
+              return c.text(e?.message || 'error', 500);
             }
           };
-          return handler;
         },
       },
     ],
