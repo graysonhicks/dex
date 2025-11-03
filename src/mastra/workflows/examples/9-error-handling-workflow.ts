@@ -1,7 +1,8 @@
 /**
  * ERROR HANDLING WORKFLOW
  * 
- * Demonstrates: Retries, bail(), and error handling strategies.
+ * Demonstrates: Retries, bail(), error branching, and fallback paths.
+ * Reference: https://mastra.ai/docs/workflows/error-handling
  * 
  * Run: npx tsx src/mastra/workflows/examples/run-examples.ts error
  */
@@ -9,249 +10,161 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
-// Check rate limit (may bail early)
+// Step 1: Check rate limit (can bail early)
 const checkRateLimitStep = createStep({
     id: 'check-rate-limit',
-    description: 'Checks if rate limit is exceeded',
+    description: 'Checks if rate limit allows processing',
     inputSchema: z.object({
-        apiKey: z.string(),
         requestCount: z.number(),
+        maxRequests: z.number(),
     }),
     outputSchema: z.object({
         allowed: z.boolean(),
         remaining: z.number(),
-        message: z.string(),
     }),
     execute: async ({ inputData, bail }) => {
-        const RATE_LIMIT = 100;
-        const remaining = RATE_LIMIT - inputData.requestCount;
+        const remaining = inputData.maxRequests - inputData.requestCount;
         
-        // Bail early if rate limit exceeded
+        // Bail early if rate limit exceeded - workflow exits successfully
         if (remaining <= 0) {
             return bail({
                 allowed: false,
                 remaining: 0,
-                message: 'Rate limit exceeded. Workflow terminated.',
             });
         }
         
         return {
             allowed: true,
             remaining,
-            message: `${remaining} requests remaining`,
         };
     },
 });
 
-// Fetch data with retries (step-level retry)
-const fetchDataStep = createStep({
-    id: 'fetch-data',
-    description: 'Fetches data from external API with automatic retries',
+// Step 2: Risky operation that might fail
+const riskyOperationStep = createStep({
+    id: 'risky-operation',
+    description: 'Attempts a risky operation with error handling',
     inputSchema: z.object({
-        apiKey: z.string(),
-        endpoint: z.string(),
+        allowed: z.boolean(),
+        remaining: z.number(),
     }),
     outputSchema: z.object({
-        data: z.any(),
-        fetchedAt: z.string(),
+        status: z.string(),
+        data: z.string().optional(),
+        error: z.string().optional(),
     }),
-    // Step-level retry configuration
+    // Step-level retry: tries 3 times before giving up
     retries: 3,
     execute: async ({ inputData, runCount }) => {
-        console.log(`Fetch attempt ${(runCount || 0) + 1}`);
+        const attempt = (runCount || 0) + 1;
+        console.log(`Risky operation attempt ${attempt}`);
         
-        // Simulate API call with 50% failure rate
-        const success = Math.random() > 0.5;
-        
-        if (!success) {
-            throw new Error('API request failed');
+        try {
+            // Simulate 70% failure rate
+            if (Math.random() > 0.3) {
+                throw new Error('Operation failed');
+            }
+            
+            return {
+                status: 'success',
+                data: 'Operation completed successfully',
+            };
+        } catch (error: any) {
+            // After retries exhausted, return error status instead of throwing
+            if (attempt >= 3) {
+                return {
+                    status: 'error',
+                    error: error.message,
+                };
+            }
+            // Re-throw to trigger retry
+            throw error;
         }
-        
-        return {
-            data: { result: 'Sample data from API' },
-            fetchedAt: new Date().toISOString(),
-        };
     },
 });
 
-// Process data (may throw error)
-const processDataStep = createStep({
-    id: 'process-data',
-    description: 'Processes fetched data',
+// Success path: Process the successful result
+const processSuccessStep = createStep({
+    id: 'process-success',
+    description: 'Processes successful operation result',
     inputSchema: z.object({
-        data: z.any(),
-        fetchedAt: z.string(),
+        status: z.string(),
+        data: z.string().optional(),
+        error: z.string().optional(),
     }),
     outputSchema: z.object({
-        processed: z.boolean(),
         result: z.string(),
-    }),
-    execute: async ({ inputData }) => {
-        // Validate data structure
-        if (!inputData.data || typeof inputData.data !== 'object') {
-            throw new Error('Invalid data format received');
-        }
-        
-        return {
-            processed: true,
-            result: JSON.stringify(inputData.data),
-        };
-    },
-});
-
-// Handle errors and provide fallback
-const fallbackStep = createStep({
-    id: 'fallback',
-    description: 'Provides fallback when main processing fails',
-    inputSchema: z.object({
-        apiKey: z.string(),
-        endpoint: z.string(),
-    }),
-    outputSchema: z.object({
-        processed: z.boolean(),
-        result: z.string(),
-    }),
-    execute: async ({ inputData }) => {
-        console.log('Using fallback processing');
-        
-        return {
-            processed: true,
-            result: 'Fallback data used due to errors',
-        };
-    },
-});
-
-// Format result
-const formatResultStep = createStep({
-    id: 'format-result',
-    description: 'Formats final result',
-    inputSchema: z.object({
-        processed: z.boolean(),
-        result: z.string(),
-    }),
-    outputSchema: z.object({
-        success: z.boolean(),
-        message: z.string(),
-        data: z.string(),
+        processedAt: z.string(),
     }),
     execute: async ({ inputData }) => {
         return {
-            success: inputData.processed,
-            message: inputData.processed ? 'Data processed successfully' : 'Processing failed',
-            data: inputData.result,
+            result: `Success: ${inputData.data}`,
+            processedAt: new Date().toISOString(),
         };
     },
 });
 
-// Workflow: Error handling with retries, bail, and fallback
+// Error path: Fallback operation
+const fallbackOperationStep = createStep({
+    id: 'fallback-operation',
+    description: 'Fallback when main operation fails',
+    inputSchema: z.object({
+        status: z.string(),
+        data: z.string().optional(),
+        error: z.string().optional(),
+    }),
+    outputSchema: z.object({
+        result: z.string(),
+        processedAt: z.string(),
+    }),
+    execute: async ({ inputData, getStepResult }) => {
+        // Use getStepResult to inspect previous step
+        const riskyResult = getStepResult(riskyOperationStep);
+        
+        return {
+            result: `Fallback: Using cached data due to error - ${inputData.error}`,
+            processedAt: new Date().toISOString(),
+        };
+    },
+});
+
+// Main workflow with error handling control flow
 export const errorHandlingWorkflow = createWorkflow({
     id: 'error-handling-workflow',
-    description: 'Demonstrates error handling, retries, bail, and fallback patterns',
+    description: 'Demonstrates error handling with retries, bail, and conditional branching',
     inputSchema: z.object({
-        apiKey: z.string(),
-        endpoint: z.string(),
         requestCount: z.number(),
+        maxRequests: z.number(),
     }),
     outputSchema: z.object({
-        success: z.boolean(),
-        message: z.string(),
-        data: z.string(),
+        result: z.string(),
+        processedAt: z.string(),
     }),
-    // Workflow-level retry configuration (applies to all steps unless overridden)
+    // Workflow-level retry: applies to all steps (unless overridden)
     retryConfig: {
         attempts: 2,
-        delay: 1000,
+        delay: 500,
     },
 })
-    .map(async ({ inputData }) => ({
-        apiKey: inputData.apiKey,
-        requestCount: inputData.requestCount,
-    }))
-    // Check rate limit (may bail early)
+    // Check rate limit (can bail early)
     .then(checkRateLimitStep)
-    // Try main path
-    .map(async ({ getInitData }) => {
-        const init = getInitData();
-        return {
-            apiKey: init.apiKey,
-            endpoint: init.endpoint,
-        };
-    })
+    
+    // Attempt risky operation (has 3 retries)
+    .then(riskyOperationStep)
+    
+    // Branch based on success or error status
     .branch([
-        // Try to fetch and process data
+        // Success path
         [
-            async () => true,
-            createWorkflow({
-                id: 'main-processing',
-                inputSchema: z.object({
-                    apiKey: z.string(),
-                    endpoint: z.string(),
-                }),
-                outputSchema: z.object({
-                    processed: z.boolean(),
-                    result: z.string(),
-                }),
-            })
-                .then(fetchDataStep)  // Has step-level retries!
-                .then(processDataStep)
-                .commit(),
+            async ({ inputData }) => inputData.status === 'success',
+            processSuccessStep,
+        ],
+        // Error path (fallback)
+        [
+            async ({ inputData }) => inputData.status === 'error',
+            fallbackOperationStep,
         ],
     ])
-    .then(formatResultStep)
-    .commit();
-
-// Alternative workflow showing fallback pattern
-export const errorHandlingWithFallbackWorkflow = createWorkflow({
-    id: 'error-handling-fallback-workflow',
-    description: 'Demonstrates error handling with explicit fallback branch',
-    inputSchema: z.object({
-        apiKey: z.string(),
-        endpoint: z.string(),
-        useMainPath: z.boolean(),
-    }),
-    outputSchema: z.object({
-        success: z.boolean(),
-        message: z.string(),
-        data: z.string(),
-    }),
-})
-    .map(async ({ inputData }) => ({
-        apiKey: inputData.apiKey,
-        endpoint: inputData.endpoint,
-    }))
-    .branch([
-        // Main path
-        [
-            async ({ getInitData }) => {
-                const init = getInitData();
-                return init.useMainPath;
-            },
-            createWorkflow({
-                id: 'main-path',
-                inputSchema: z.object({
-                    apiKey: z.string(),
-                    endpoint: z.string(),
-                }),
-                outputSchema: z.object({
-                    processed: z.boolean(),
-                    result: z.string(),
-                }),
-            })
-                .then(fetchDataStep)
-                .then(processDataStep)
-                .commit(),
-        ],
-        // Fallback path
-        [
-            async ({ getInitData }) => {
-                const init = getInitData();
-                return !init.useMainPath;
-            },
-            fallbackStep,
-        ],
-    ])
-    .then(formatResultStep)
     .commit();
 
 export default errorHandlingWorkflow;
-

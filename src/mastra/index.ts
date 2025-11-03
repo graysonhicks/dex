@@ -17,6 +17,7 @@ import loopWorkflow from './workflows/examples/6-loop-workflow';
 import nestedWorkflow from './workflows/examples/7-nested-workflow';
 import mappingWorkflow from './workflows/examples/8-mapping-workflow';
 import errorHandlingWorkflow from './workflows/examples/9-error-handling-workflow';
+import humanInTheLoopWorkflow from './workflows/examples/10-human-in-the-loop-workflow';
 
 export const mastra = new Mastra({
   workflows: { 
@@ -32,6 +33,7 @@ export const mastra = new Mastra({
     nestedWorkflow,
     mappingWorkflow,
     errorHandlingWorkflow,
+    humanInTheLoopWorkflow,
   },
   agents: { weatherAgent, docsAgent },
   storage: new LibSQLStore({
