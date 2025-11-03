@@ -7,8 +7,32 @@ import { weatherAgent } from './agents/weather-agent';
 import docsSyncWorkflow from './workflows/docs-sync-workflow';
 import { docsAgent } from './agents/docs-agent';
 
+// Example workflows
+import sequentialWorkflow from './workflows/examples/1-sequential-workflow';
+import parallelWorkflow from './workflows/examples/2-parallel-workflow';
+import branchWorkflow from './workflows/examples/3-branch-workflow';
+import suspendResumeWorkflow from './workflows/examples/4-suspend-resume-workflow';
+import foreachWorkflow from './workflows/examples/5-foreach-workflow';
+import loopWorkflow from './workflows/examples/6-loop-workflow';
+import nestedWorkflow from './workflows/examples/7-nested-workflow';
+import mappingWorkflow from './workflows/examples/8-mapping-workflow';
+import errorHandlingWorkflow from './workflows/examples/9-error-handling-workflow';
+
 export const mastra = new Mastra({
-  workflows: { weatherWorkflow, docsSyncWorkflow },
+  workflows: { 
+    weatherWorkflow, 
+    docsSyncWorkflow,
+    // Example workflows
+    sequentialWorkflow,
+    parallelWorkflow,
+    branchWorkflow,
+    suspendResumeWorkflow,
+    foreachWorkflow,
+    loopWorkflow,
+    nestedWorkflow,
+    mappingWorkflow,
+    errorHandlingWorkflow,
+  },
   agents: { weatherAgent, docsAgent },
   storage: new LibSQLStore({
     // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db
