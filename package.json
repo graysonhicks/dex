@@ -18,10 +18,10 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.52",
-    "@mastra/core": "^0.20.2",
-    "@mastra/libsql": "^0.15.1",
-    "@mastra/loggers": "^0.10.15",
-    "@mastra/memory": "^0.15.6",
+    "@mastra/core": "0.24.8",
+    "@mastra/loggers": "^0.10.19",
+    "@mastra/libsql": "^0.16.4",
+    "@mastra/memory": "^0.15.13",
     "@octokit/rest": "^22.0.0",
     "@octokit/webhooks-types": "^7.6.1",
     "@slack/web-api": "^7.11.0",
@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.7.2",
-    "mastra": "^0.15.1",
+    "mastra": "0.18.8",
     "typescript": "^5.9.3"
   }
 }
